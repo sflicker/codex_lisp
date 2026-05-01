@@ -18,18 +18,25 @@ PROMPT = "lisp> "
 HIGHLIGHT_START = "\033[7m"
 HIGHLIGHT_END = "\033[0m"
 
+ParenFrame = tuple[int, str]
+
 
 class _LineReader:
     def __init__(self) -> None:
         self.history: list[str] = []
 
-    def read_line(self, prompt: str, prior_lines: list[str] | None = None) -> str:
+    def read_line(
+        self,
+        prompt: str,
+        prior_lines: list[str] | None = None,
+        initial_text: str = "",
+    ) -> str:
         if not sys.stdin.isatty() or not sys.stdout.isatty():
             return input(prompt)
 
         prior_lines = prior_lines or []
-        buffer: list[str] = []
-        cursor = 0
+        buffer: list[str] = list(initial_text)
+        cursor = len(buffer)
         history_index: int | None = None
         source_prefix = _source_prefix(prior_lines)
         line_start = len(source_prefix)
@@ -38,6 +45,8 @@ class _LineReader:
 
         sys.stdout.write(prompt)
         sys.stdout.flush()
+        if buffer:
+            self._render(prompt, buffer, cursor, prior_lines, source_prefix, line_start)
 
         try:
             tty.setraw(stdin_fd)
@@ -201,19 +210,21 @@ def _source_prefix(lines: list[str]) -> str:
 def _prompts_for_lines(lines: list[str]) -> list[str]:
     prompts = [PROMPT]
     for index in range(1, len(lines)):
-        prompts.append(_continuation_prompt("\n".join(lines[:index])))
+        prompts.append(" " * len(PROMPT))
     return prompts
 
 
-def _paren_stack(source: str) -> list[int] | None:
-    """Return unmatched opening paren columns, or None if a close is extra."""
-    stack: list[int] = []
+def _paren_stack(source: str) -> list[ParenFrame] | None:
+    """Return unmatched opening paren locations, or None if a close is extra."""
+    stack: list[ParenFrame] = []
     column = 0
+    line_start = 0
     in_comment = False
 
-    for char in source:
+    for index, char in enumerate(source):
         if char == "\n":
             column = 0
+            line_start = index + 1
             in_comment = False
             continue
 
@@ -224,7 +235,10 @@ def _paren_stack(source: str) -> list[int] | None:
         if char == ";":
             in_comment = True
         elif char == "(":
-            stack.append(column)
+            line_end = source.find("\n", line_start)
+            if line_end == -1:
+                line_end = len(source)
+            stack.append((column, source[line_start:line_end]))
         elif char == ")":
             if not stack:
                 return None
@@ -241,13 +255,15 @@ def _needs_more_input(source: str) -> bool:
 
 
 def _continuation_prompt(source: str) -> str:
+    return " " * _continuation_indent(source)
+
+
+def _continuation_indent(source: str) -> int:
     stack = _paren_stack(source)
-    indent = _first_operand_column(source, stack[-1]) if stack else 0
-    return " " * (len(PROMPT) + indent)
+    return _first_operand_column(*stack[-1]) if stack else 0
 
 
-def _first_operand_column(source: str, open_paren_column: int) -> int:
-    line = source.splitlines()[-1]
+def _first_operand_column(open_paren_column: int, line: str) -> int:
     index = open_paren_column + 1
 
     while index < len(line) and line[index].isspace():
@@ -325,9 +341,11 @@ def _read_expression() -> str | None:
 
     lines = [line]
     while _needs_more_input("\n".join(lines)):
+        source = "\n".join(lines)
+        indent = " " * _continuation_indent(source)
         try:
             lines.append(
-                _LINE_READER.read_line(_continuation_prompt("\n".join(lines)), lines)
+                _LINE_READER.read_line(" " * len(PROMPT), lines, initial_text=indent)
             )
         except EOFError:
             print()

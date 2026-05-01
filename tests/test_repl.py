@@ -6,7 +6,9 @@ from repl import (
     PROMPT,
     _highlight_matching_parens,
     _matching_paren_indexes,
+    _continuation_indent,
     _continuation_prompt,
+    _prompts_for_lines,
     _needs_more_input,
     _paren_stack,
 )
@@ -27,11 +29,55 @@ class ReplInputTests(unittest.TestCase):
         self.assertFalse(_needs_more_input("(+ 1 2) ; ("))
 
     def test_continuation_prompt_aligns_under_leftmost_operand(self):
-        self.assertEqual(_continuation_prompt("(+ 1"), " " * (len(PROMPT) + 3))
+        self.assertEqual(_continuation_prompt("(+ 1"), " " * 3)
 
     def test_nested_continuation_prompt_uses_innermost_open_paren(self):
-        self.assertEqual(_continuation_prompt("(begin\n(+ 1"), " " * (len(PROMPT) + 3))
-        self.assertEqual(_continuation_prompt("(begin\n  (+ 1"), " " * (len(PROMPT) + 5))
+        self.assertEqual(_continuation_prompt("(begin\n(+ 1"), " " * 3)
+        self.assertEqual(_continuation_prompt("(begin\n  (+ 1"), " " * 5)
+
+    def test_continuation_prompt_tracks_unclosed_form_across_lines(self):
+        lines = [
+            "(+ (* 3",
+            "      (+ (* 2 4)",
+            "         (+ 3 5)))",
+            "   (+ (- 10 7)",
+        ]
+
+        self.assertEqual(_continuation_prompt("\n".join(lines[:1])), " " * 6)
+        self.assertEqual(_continuation_prompt("\n".join(lines[:2])), " " * 9)
+        self.assertEqual(_continuation_prompt("\n".join(lines[:3])), " " * 3)
+        self.assertEqual(_continuation_prompt("\n".join(lines[:4])), " " * 6)
+
+    def test_continuation_indent_uses_previous_generated_indentation(self):
+        lines = ["(+ (* 3"]
+        lines.append(" " * _continuation_indent("\n".join(lines)) + "(+ (* 2 4)")
+        lines.append(" " * _continuation_indent("\n".join(lines)) + "(+ 3 5)))")
+        lines.append(" " * _continuation_indent("\n".join(lines)) + "(+ (- 10 7)")
+
+        self.assertEqual(lines, [
+            "(+ (* 3",
+            "      (+ (* 2 4)",
+            "         (+ 3 5)))",
+            "   (+ (- 10 7)",
+        ])
+
+    def test_displayed_continuation_lines_compensate_for_missing_prompt(self):
+        lines = [
+            "(+ (* 3",
+            "      (+ (* 2 4)",
+            "         (+ 3 5)))",
+            "   (+ (- 10 7)",
+            "      6))",
+        ]
+        prompts = _prompts_for_lines(lines)
+
+        self.assertEqual([prompt + line for prompt, line in zip(prompts, lines)], [
+            "lisp> (+ (* 3",
+            "            (+ (* 2 4)",
+            "               (+ 3 5)))",
+            "         (+ (- 10 7)",
+            "            6))",
+        ])
 
     def test_finds_matching_parens_when_cursor_after_paren(self):
         self.assertEqual(_matching_paren_indexes("(+ 1 2)", 7), (0, 6))
