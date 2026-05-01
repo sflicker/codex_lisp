@@ -85,7 +85,7 @@ def tokenize(source: str) -> list[str]:
             in_comment = True
             continue
 
-        if char in "()":
+        if char in "()'":
             if token:
                 tokens.append("".join(token))
                 token.clear()
@@ -148,6 +148,10 @@ def _read_from_tokens(tokens: list[str], index: int) -> tuple[Expression, int]:
     if token == ")":
         raise LispSyntaxError("unexpected ')'")
 
+    if token == "'":
+        quoted, next_index = _read_from_tokens(tokens, index + 1)
+        return ["quote", quoted], next_index
+
     return _atom(token), index + 1
 
 
@@ -187,6 +191,15 @@ def standard_env() -> Env:
             "round": round,
             "sqrt": math.sqrt,
             "print": _print,
+            "cons": _cons,
+            "car": _car,
+            "cdr": _cdr,
+            "list": lambda *args: list(args),
+            "null?": lambda value: value == [],
+            "pair?": lambda value: isinstance(value, list) and len(value) > 0,
+            "list?": lambda value: isinstance(value, list),
+            "append": _append,
+            "length": _length,
         }
     )
     return env
@@ -212,26 +225,72 @@ def evaluate(expr: Expression, env: Env | None = None) -> Any:
     first = expr[0]
 
     if first == "define":
-        _require_form_length(expr, 3, "define")
-        name = expr[1]
-        if not isinstance(name, str):
+        if len(expr) < 3:
+            raise LispSyntaxError("define expects a name and value")
+
+        target = expr[1]
+        if isinstance(target, list):
+            if not target:
+                raise LispSyntaxError("define expects a procedure name")
+            name = target[0]
+            params = target[1:]
+            if not isinstance(name, str):
+                raise LispSyntaxError("define expects a symbol name")
+            _validate_params(params, "define")
+            env[name] = Procedure(params, expr[2:], env)
+            return name
+
+        if len(expr) != 3:
+            raise LispSyntaxError("define variable form expects a single value")
+        if not isinstance(target, str):
             raise LispSyntaxError("define expects a symbol name")
-        env[name] = evaluate(expr[2], env)
-        return name
+        env[target] = evaluate(expr[2], env)
+        return target
+
+    if first == "quote":
+        _require_form_length(expr, 2, "quote")
+        return expr[1]
+
+    if first == "begin":
+        return _eval_sequence(expr[1:], env)
 
     if first == "if":
         _require_form_length(expr, 4, "if")
         _, test, consequent, alternative = expr
         return evaluate(consequent if _truthy(evaluate(test, env)) else alternative, env)
 
+    if first == "cond":
+        return _eval_cond(expr[1:], env)
+
+    if first == "let":
+        return _eval_let(expr, env)
+
+    if first == "and":
+        result: Any = True
+        for arg in expr[1:]:
+            result = evaluate(arg, env)
+            if not _truthy(result):
+                return False
+        return result
+
+    if first == "or":
+        for arg in expr[1:]:
+            result = evaluate(arg, env)
+            if _truthy(result):
+                return result
+        return False
+
+    if first == "not":
+        _require_form_length(expr, 2, "not")
+        return not _truthy(evaluate(expr[1], env))
+
     if first == "lambda":
         if len(expr) < 3:
             raise LispSyntaxError("lambda expects parameters and a body")
         params = expr[1]
-        if not isinstance(params, list) or not all(isinstance(p, str) for p in params):
+        if not isinstance(params, list):
             raise LispSyntaxError("lambda parameters must be a list of symbols")
-        if len(params) != len(set(params)):
-            raise LispSyntaxError("lambda parameters must be unique")
+        _validate_params(params, "lambda")
         return Procedure(params, expr[2:], env)
 
     proc = evaluate(first, env)
@@ -272,6 +331,70 @@ def stringify(value: Any) -> str:
 def _require_form_length(expr: list[Any], length: int, name: str) -> None:
     if len(expr) != length:
         raise LispSyntaxError(f"{name} expects {length - 1} argument(s)")
+
+
+def _validate_params(params: list[Any], name: str) -> None:
+    if not all(isinstance(p, str) for p in params):
+        raise LispSyntaxError(f"{name} parameters must be symbols")
+    if len(params) != len(set(params)):
+        raise LispSyntaxError(f"{name} parameters must be unique")
+
+
+def _eval_sequence(expressions: list[Expression], env: Env) -> Any:
+    if not expressions:
+        raise LispSyntaxError("expected at least one expression")
+
+    result: Any = None
+    for expression in expressions:
+        result = evaluate(expression, env)
+    return result
+
+
+def _eval_cond(clauses: list[Expression], env: Env) -> Any:
+    for index, clause in enumerate(clauses):
+        if not isinstance(clause, list) or not clause:
+            raise LispSyntaxError("cond clauses must be non-empty lists")
+
+        test = clause[0]
+        if test == "else":
+            if index != len(clauses) - 1:
+                raise LispSyntaxError("else must be the final cond clause")
+            if len(clause) == 1:
+                raise LispSyntaxError("else clause expects a result expression")
+            return _eval_sequence(clause[1:], env)
+
+        test_value = evaluate(test, env)
+        if _truthy(test_value):
+            if len(clause) == 1:
+                return test_value
+            return _eval_sequence(clause[1:], env)
+
+    return None
+
+
+def _eval_let(expr: list[Any], env: Env) -> Any:
+    if len(expr) < 3:
+        raise LispSyntaxError("let expects bindings and a body")
+
+    bindings = expr[1]
+    if not isinstance(bindings, list):
+        raise LispSyntaxError("let bindings must be a list")
+
+    names: list[str] = []
+    values: list[Any] = []
+    for binding in bindings:
+        if not isinstance(binding, list) or len(binding) != 2:
+            raise LispSyntaxError("let bindings must be (name value) pairs")
+        name, value_expr = binding
+        if not isinstance(name, str):
+            raise LispSyntaxError("let binding names must be symbols")
+        names.append(name)
+        values.append(evaluate(value_expr, env))
+
+    if len(names) != len(set(names)):
+        raise LispSyntaxError("let binding names must be unique")
+
+    return _eval_sequence(expr[2:], Env(dict(zip(names, values)), env))
 
 
 def _truthy(value: Any) -> bool:
@@ -315,6 +438,51 @@ def _pairs(values: Iterable[Any]) -> Iterable[tuple[Any, Any]]:
 def _require_min_args(args: tuple[Any, ...], minimum: int, name: str) -> None:
     if len(args) < minimum:
         raise LispEvaluationError(f"{name} expects at least {minimum} argument(s)")
+
+
+def _require_arg_count(args: tuple[Any, ...], count: int, name: str) -> None:
+    if len(args) != count:
+        raise LispEvaluationError(f"{name} expects {count} argument(s)")
+
+
+def _require_list(value: Any, name: str) -> list[Any]:
+    if not isinstance(value, list):
+        raise LispEvaluationError(f"{name} expects a list")
+    return value
+
+
+def _cons(*args: Any) -> list[Any]:
+    _require_arg_count(args, 2, "cons")
+    rest = _require_list(args[1], "cons")
+    return [args[0], *rest]
+
+
+def _car(*args: Any) -> Any:
+    _require_arg_count(args, 1, "car")
+    values = _require_list(args[0], "car")
+    if not values:
+        raise LispEvaluationError("car expects a non-empty list")
+    return values[0]
+
+
+def _cdr(*args: Any) -> list[Any]:
+    _require_arg_count(args, 1, "cdr")
+    values = _require_list(args[0], "cdr")
+    if not values:
+        raise LispEvaluationError("cdr expects a non-empty list")
+    return values[1:]
+
+
+def _append(*args: Any) -> list[Any]:
+    result: list[Any] = []
+    for value in args:
+        result.extend(_require_list(value, "append"))
+    return result
+
+
+def _length(*args: Any) -> int:
+    _require_arg_count(args, 1, "length")
+    return len(_require_list(args[0], "length"))
 
 
 def _print(*args: Any) -> None:

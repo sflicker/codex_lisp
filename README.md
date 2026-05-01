@@ -10,10 +10,17 @@ REPL.
 - Lisp-style list expressions
 - Arithmetic operators: `+`, `-`, `*`, `/`
 - Comparisons: `=`, `<`, `>`, `<=`, `>=`
+- Boolean literals and operators: `#t`, `#f`, `and`, `or`, `not`
 - Variables with `define`
+- Procedure definition shorthand: `(define (name arg ...) body ...)`
 - Conditionals with `if`
+- Multi-branch conditionals with `cond`
+- Local bindings with `let`
 - Functions with `lambda`
 - Lexical closures
+- Quoted symbols and lists with `quote` and `'`
+- List primitives: `cons`, `car`, `cdr`, `list`, `null?`, `pair?`, `list?`,
+  `append`, `length`
 - Program execution with multiple expressions
 - REPL-friendly error messages
 
@@ -98,6 +105,17 @@ Conditionals:
 
 ```lisp
 (if (> 3 2) 1 0)
+(if #t 1 0)
+(cond ((< 3 2) 0)
+      (else 1))
+```
+
+Booleans:
+
+```lisp
+(and #t (> 3 2))
+(or #f (< 3 2))
+(not #f)
 ```
 
 Functions:
@@ -105,6 +123,26 @@ Functions:
 ```lisp
 (define triple (lambda (x) (* x 3)))
 (triple 7)
+(define (square x) (* x x))
+(square 9)
+```
+
+Local bindings:
+
+```lisp
+(let ((x 2)
+      (y 3))
+  (+ x y))
+```
+
+Lists and quoted data:
+
+```lisp
+'(a b c)
+(list 1 2 3)
+(car '(1 2 3))
+(cdr '(1 2 3))
+(cons 1 '(2 3))
 ```
 
 Comments begin with `;` and continue to the end of the line.
@@ -118,6 +156,6 @@ python3 -m unittest discover -s tests
 ## Current Limitations
 
 This interpreter intentionally implements a small Lisp subset. It does not yet
-include strings, quoted data, list manipulation primitives, `let`, recursion
-helpers, file loading, or multiline REPL input.
+include strings, dotted pairs, mutation, recursion helpers, file loading, or
+multiline REPL input.
 # codex_lisp

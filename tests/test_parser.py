@@ -10,12 +10,21 @@ class ParserTests(unittest.TestCase):
             ["(", "+", "1", "(", "*", "2", "3", ")", ")"],
         )
 
+    def test_tokenize_quote(self):
+        self.assertEqual(tokenize("'(a b c)"), ["'", "(", "a", "b", "c", ")"])
+
     def test_parse_nested_expression(self):
         self.assertEqual(parse("(+ 1 (* 2 3))"), ["+", 1, ["*", 2, 3]])
+
+    def test_parse_quote_shorthand(self):
+        self.assertEqual(parse("'x"), ["quote", "x"])
+        self.assertEqual(parse("'(a b c)"), ["quote", ["a", "b", "c"]])
 
     def test_parse_numbers_and_symbols(self):
         self.assertEqual(parse("42"), 42)
         self.assertEqual(parse("3.5"), 3.5)
+        self.assertIs(parse("#t"), True)
+        self.assertIs(parse("#f"), False)
         self.assertEqual(parse("thing"), "thing")
 
     def test_parse_program_accepts_multiple_expressions(self):

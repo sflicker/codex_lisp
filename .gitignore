@@ -1,0 +1,6 @@
+sicp.pdf
+sicp.txt
+sicp.md
+
+__pycache__/
+*.py[cod]
