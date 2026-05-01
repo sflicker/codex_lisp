@@ -72,6 +72,12 @@ lisp> (square 9)
 
 Exit with `exit`, `quit`, or `Ctrl-D`.
 
+The REPL keeps command history in interactive terminals, so the up arrow
+recalls previous commands. If an expression is missing a closing parenthesis,
+the REPL continues on the next line and aligns the cursor under the innermost
+open form's first operand. When the cursor is next to a matched parenthesis,
+both parentheses are highlighted.
+
 ## Using the Interpreter from Python
 
 ```python
@@ -156,6 +162,5 @@ python3 -m unittest discover -s tests
 ## Current Limitations
 
 This interpreter intentionally implements a small Lisp subset. It does not yet
-include strings, dotted pairs, mutation, recursion helpers, file loading, or
-multiline REPL input.
+include strings, dotted pairs, mutation, recursion helpers, or file loading.
 # codex_lisp
